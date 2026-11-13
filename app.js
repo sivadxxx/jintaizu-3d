@@ -195,6 +195,8 @@ async function load(name) {
   for (const m of parse(await r.arrayBuffer())) groups[name].add(m);
   loaded[name] = true; dirty = true;
 }
+let modelsReady = false, swReady = false;
+function showOffline() { statusEl.textContent = (modelsReady && swReady) ? 'オフラインでも使えます' : (modelsReady ? '' : statusEl.textContent); }
 (async () => {
   try {
     statusEl.textContent = 'モデルを読み込み中… 1/3';
@@ -204,7 +206,7 @@ async function load(name) {
     await load('muscle');
     statusEl.textContent = 'モデルを読み込み中… 3/3';
     await load('bone');
-    statusEl.textContent = '';
+    modelsReady = true; showOffline();
   } catch (e) {
     loadingEl.hidden = false; loadingEl.textContent = '読み込みに失敗しました。通信状態を確かめて、開き直してください。';
     statusEl.textContent = String(e.message || e);
@@ -214,9 +216,7 @@ async function load(name) {
 // 一度開いたら電波がなくても使えるようにする（https か localhost のときだけ）
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => {
-      if (!statusEl.textContent) statusEl.textContent = 'オフラインでも使えます';
-    }).catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => { swReady = true; showOffline(); }).catch(() => {});
   });
 }
 window.__viewer = { camera, controls, goTo, renderer, groups, loaded, redraw: () => { dirty = true; } };   // 動作確認用
