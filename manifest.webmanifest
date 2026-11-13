@@ -1,0 +1,30 @@
+{
+ "name": "人体図3D",
+ "short_name": "人体図3D",
+ "lang": "ja",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "any",
+ "background_color": "#FAF6F1",
+ "theme_color": "#FAF6F1",
+ "description": "皮膚・筋肉・骨を、回しながら好きな角度から見られる人体図",
+ "icons": [
+  {
+   "src": "icons/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}

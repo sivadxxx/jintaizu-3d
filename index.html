@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>人体図3D</title>
+<meta name="theme-color" content="#FAF6F1">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="人体図3D">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+:root{--bg:#FAF6F1;--card:#FFFFFF;--line:#E6DDD3;--ink:#3A2F29;--sub:#7A6C63;--accent:#C4633F;--accent-soft:#F6E4DB}
+*{box-sizing:border-box}
+html,body{height:100%;overscroll-behavior:none}
+body{margin:0;touch-action:manipulation;-webkit-text-size-adjust:100%;background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",Meiryo,system-ui,sans-serif;font-size:15px;line-height:1.6}
+.app{display:grid;grid-template-columns:300px 1fr;gap:16px;height:100vh;height:100dvh;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:22px;overflow:auto;min-height:0}
+h1{font-size:19px;margin:0;letter-spacing:.04em}
+.lead{margin:4px 0 0;color:var(--sub);font-size:13px}
+h2{font-size:12px;margin:0 0 10px;color:var(--sub);font-weight:600;letter-spacing:.08em}
+.dirs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.btn{appearance:none;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 6px;font:inherit;font-size:13px;color:var(--ink);cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.btn:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.slider{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:10px;row-gap:2px;margin-bottom:14px}
+.slider label{font-weight:600}
+.slider output{font-variant-numeric:tabular-nums;color:var(--sub);font-size:13px;min-width:3.2em;text-align:right}
+.slider input{grid-column:1/-1;width:100%;accent-color:var(--accent);height:28px;margin:0}
+.presets{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.foot{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.status{font-size:11.5px;color:var(--sub);margin:0;min-height:1.2em}
+.note{font-size:11.5px;color:var(--sub);margin:0;line-height:1.7}
+.stage{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;touch-action:none;cursor:grab;min-height:0;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.stage:active{cursor:grabbing}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;outline:none}
+.corner{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:8px;z-index:2}
+.corner .btn{width:42px;height:42px;border-radius:50%;font-size:20px;line-height:1;padding:0;box-shadow:0 1px 3px rgba(60,40,30,.12)}
+.corner .btn.small{font-size:11px}
+.hint{position:absolute;right:14px;bottom:10px;font-size:12px;color:var(--sub);pointer-events:none}
+.hint .touch{display:none}
+@media (pointer:coarse){.hint .mouse{display:none}.hint .touch{display:inline}}
+.loading{position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:14px;pointer-events:none}
+.loading[hidden]{display:none}
+.credit{display:none}
+/* 幅がせまい画面（iPad の縦向き・スマホ）：操作を上にまとめ、図を大きく */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) auto;gap:10px}
+  .panel{display:grid;grid-template-columns:minmax(200px,260px) 1fr;gap:6px 18px;padding:12px 14px;overflow:visible;align-items:start}
+  .panel>div:first-child{grid-column:1/-1}
+  h1{font-size:16px}
+  .lead,.note{display:none}
+  .foot{grid-column:1/-1;margin:0}
+  .status{min-height:0}
+  h2{margin-bottom:6px}
+  .dirs{grid-template-columns:repeat(2,1fr)}
+  .slider{grid-template-columns:auto 1fr auto;margin-bottom:4px}
+  .slider label{grid-column:1;grid-row:1;min-width:2.4em}
+  .slider input{grid-column:2;grid-row:1}
+  .slider output{grid-column:3;grid-row:1}
+  .presets{grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}
+  .btn{padding:7px 4px}
+  .credit{display:block;font-size:10px;line-height:1.5;color:var(--sub);margin:0;padding:0 4px}
+}
+@media (max-width:520px){.panel{grid-template-columns:1fr}.dirs{grid-template-columns:repeat(4,1fr)}}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div><h1>人体図3D</h1><p class="lead">指やマウスで回して、皮膚・筋肉・骨を好きな角度から見られます。</p></div>
+    <section><h2>向き</h2>
+      <div class="dirs">
+        <button class="btn" data-dir="front">正面</button>
+        <button class="btn" data-dir="back">後面</button>
+        <button class="btn" data-dir="right">右側</button>
+        <button class="btn" data-dir="left">左側</button>
+      </div>
+    </section>
+    <section><h2>透過</h2>
+      <div class="slider"><label for="skin">皮膚</label><output id="skinOut" for="skin">100%</output>
+        <input id="skin" type="range" min="0" max="100" value="100"></div>
+      <div class="slider"><label for="muscle">筋肉</label><output id="muscleOut" for="muscle">100%</output>
+        <input id="muscle" type="range" min="0" max="100" value="100"></div>
+      <div class="presets">
+        <button class="btn" data-preset="100,100">皮膚</button>
+        <button class="btn" data-preset="0,100">筋肉</button>
+        <button class="btn" data-preset="0,0">骨</button>
+        <button class="btn" data-preset="45,100">半透明</button>
+      </div>
+    </section>
+    <div class="foot">
+      <p class="status" id="status" aria-live="polite"></p>
+      <p class="note">人体モデル：BodyParts3D, © The Database Center for Life Science licensed under CC Attribution 4.0 International（ライフサイエンス統合データベースセンター）。形を簡略化し、体表の一部を改変しています。<br>表示には three.js（MIT License）を使っています。</p>
+    </div>
+  </aside>
+  <main class="stage" id="stage" aria-label="人体の3D図">
+    <div class="corner">
+      <button class="btn" id="zin" aria-label="拡大">＋</button>
+      <button class="btn" id="zout" aria-label="縮小">−</button>
+      <button class="btn small" id="zreset" aria-label="表示を元に戻す">戻す</button>
+    </div>
+    <canvas id="gl" tabindex="0"></canvas>
+    <div class="loading" id="loading">読み込み中…</div>
+    <div class="hint"><span class="mouse">ドラッグで回転・ホイールで拡大・右ドラッグで移動</span><span class="touch">1本指で回転・2本指で拡大と移動</span></div>
+  </main>
+  <p class="credit">人体モデル：BodyParts3D, © The Database Center for Life Science licensed under CC Attribution 4.0 International。形を簡略化し、体表の一部を改変。表示に three.js（MIT）を使用。</p>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
