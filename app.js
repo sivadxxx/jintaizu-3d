@@ -57,6 +57,17 @@ const quadMat = new THREE.ShaderMaterial({
 });
 quadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), quadMat));
 
+// 部位の選択：'all' = 全身、0 = 体幹、1 = 右腕、2 = 左腕、3 = 右脚、4 = 左脚
+let part = 'all';
+function applyPart() {
+  for (const k in groups) for (const m of groups[k].children) {
+    const r = m.userData.region;
+    m.visible = part === 'all' ? r !== undefined && (k !== 'skin' || r === 255) : r === part;
+    // 陰影は、全身用と「その部位だけ」用を持っている（腕や脚の内側が体幹の陰で暗くならないように）
+    m.geometry.setAttribute('color', part === 'all' ? m.userData.colFull : m.userData.colPart);
+  }
+  dirty = true;
+}
 function pass(show, opacity) {
   for (const k in groups) groups[k].visible = show.indexOf(k) >= 0 && loaded[k];
   renderer.setRenderTarget(target);
@@ -93,11 +104,29 @@ function fitDistance() {            // 全身が入る距離
   return Math.max(h / 2 / t, w / 2 / (t * camera.aspect)) * 1.03;
 }
 let anim = null;
+let focus = { center: CENTER.clone(), dist: null };     // いま見ている部位の中心と、全体が入る距離
 function goTo(dir, instant) {
-  const d = new THREE.Vector3(...DIRS[dir]), to = CENTER.clone().addScaledVector(d, fitDistance());
-  if (instant) { camera.position.copy(to); controls.target.copy(CENTER); controls.update(); dirty = true; return; }
-  anim = { t0: performance.now(), p0: camera.position.clone(), p1: to, c0: controls.target.clone(), c1: CENTER.clone() };
+  const d = dir ? new THREE.Vector3(...DIRS[dir]) : camera.position.clone().sub(controls.target).normalize();
+  const to = focus.center.clone().addScaledVector(d, focus.dist || fitDistance());
+  if (instant) { camera.position.copy(to); controls.target.copy(focus.center); controls.update(); dirty = true; return; }
+  anim = { t0: performance.now(), p0: camera.position.clone(), p1: to, c0: controls.target.clone(), c1: focus.center.clone() };
 }
+function setPart(p) {
+  part = p;
+  document.querySelectorAll('[data-part]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.part === String(p))));
+  applyPart();
+  if (p === 'all') { focus = { center: CENTER.clone(), dist: null }; }
+  else {      // 選んだ部位を囲む球が画面に収まる距離
+    const box = new THREE.Box3();
+    for (const k in groups) for (const m of groups[k].children) if (m.userData.region === p) { m.geometry.computeBoundingBox(); box.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrix)); }
+    if (box.isEmpty()) return;
+    const sph = box.getBoundingSphere(new THREE.Sphere());
+    const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    focus = { center: sph.center, dist: sph.radius / Math.sin(Math.atan(t * Math.min(1, camera.aspect))) * 1.02 };
+  }
+  goTo(null);
+}
+document.querySelectorAll('[data-part]').forEach(b => b.addEventListener('click', () => setPart(b.dataset.part === 'all' ? 'all' : +b.dataset.part)));
 document.querySelectorAll('[data-dir]').forEach(b => b.addEventListener('click', () => goTo(b.dataset.dir)));
 document.getElementById('zreset').addEventListener('click', () => goTo('front'));
 function dolly(f) {
@@ -168,44 +197,49 @@ function parse(buf) {
   const al = () => { o = (o + 3) & ~3; };
   const out = [];
   for (let i = 0; i < n; i++) {
-    const nv = dv.getUint32(o, true), nt = dv.getUint32(o + 4, true), mat = dv.getUint32(o + 8, true); o += 16;
+    const nv = dv.getUint32(o, true), nt = dv.getUint32(o + 4, true), mat = dv.getUint32(o + 8, true), region = dv.getUint32(o + 12, true); o += 16;
     const pos = new Uint16Array(buf, o, nv * 3); o += nv * 6; al();
     const nrm = new Int8Array(buf, o, nv * 3); o += nv * 3; al();
     const ao = new Uint8Array(buf, o, nv); o += nv; al();
+    const ao2 = new Uint8Array(buf, o, nv); o += nv; al();
     const idx = new Uint16Array(buf, o, nt * 3); o += nt * 6; al();
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3, true));
     g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3, true));
-    const col = new Uint8Array(nv * 3);
-    for (let j = 0; j < nv; j++) { col[j * 3] = col[j * 3 + 1] = col[j * 3 + 2] = ao[j]; }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
+    const gray = a => { const c = new Uint8Array(nv * 3); for (let j = 0; j < nv; j++) { c[j * 3] = c[j * 3 + 1] = c[j * 3 + 2] = a[j]; } return new THREE.BufferAttribute(c, 3, true); };
+    const colFull = gray(ao), colPart = gray(ao2);
+    g.setAttribute('color', colFull);
     g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, materials[mat]);
     mesh.position.set(origin[0], origin[1], origin[2]);
     mesh.scale.setScalar(extent);
     mesh.matrixAutoUpdate = false; mesh.updateMatrix();
+    mesh.userData = { region, colFull, colPart };
     out.push(mesh);
   }
   return out;
 }
-async function load(name) {
+async function load(name, into) {
   const r = await fetch('models/' + name + '.bin');
   if (!r.ok) throw new Error(name + ' を読み込めません');
-  for (const m of parse(await r.arrayBuffer())) groups[name].add(m);
-  loaded[name] = true; dirty = true;
+  for (const m of parse(await r.arrayBuffer())) groups[into || name].add(m);
+  loaded[into || name] = true; applyPart();
 }
 let modelsReady = false, swReady = false;
 function showOffline() { statusEl.textContent = (modelsReady && swReady) ? 'オフラインでも使えます' : (modelsReady ? '' : statusEl.textContent); }
 (async () => {
   try {
-    statusEl.textContent = 'モデルを読み込み中… 1/3';
+    statusEl.textContent = 'モデルを読み込み中… 1/4';
     await load('skin');
     loadingEl.hidden = true;
-    statusEl.textContent = 'モデルを読み込み中… 2/3';
+    statusEl.textContent = 'モデルを読み込み中… 2/4';
     await load('muscle');
-    statusEl.textContent = 'モデルを読み込み中… 3/3';
+    statusEl.textContent = 'モデルを読み込み中… 3/4';
     await load('bone');
+    statusEl.textContent = 'モデルを読み込み中… 4/4';
+    await load('skin_parts', 'skin');          // 部位ごとに切り分けた皮膚
+    document.querySelectorAll('[data-part]').forEach(b => { b.disabled = false; });
     modelsReady = true; showOffline();
   } catch (e) {
     loadingEl.hidden = false; loadingEl.textContent = '読み込みに失敗しました。通信状態を確かめて、開き直してください。';
@@ -219,4 +253,4 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
     navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => { swReady = true; showOffline(); }).catch(() => {});
   });
 }
-window.__viewer = { camera, controls, goTo, renderer, groups, loaded, redraw: () => { dirty = true; } };   // 動作確認用
+window.__viewer = { camera, controls, goTo, setPart, renderer, groups, loaded, redraw: () => { dirty = true; } };   // 動作確認用
